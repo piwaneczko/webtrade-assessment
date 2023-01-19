@@ -60,14 +60,14 @@ would be viewed as extra credit.
 
 - Order matching example and explanation
     - Example set of orders added using addOrder()
-        OrdId1 SecId1 Buy  1000 User1 CompanyA
-        OrdId2 SecId2 Sell 3000 User2 CompanyB
-        OrdId3 SecId1 Sell  500 User3 CompanyA
-        OrdId4 SecId2 Buy   600 User4 CompanyC
-        OrdId5 SecId2 Buy   100 User5 CompanyB
-        OrdId6 SecId3 Buy  1000 User6 CompanyD
-        OrdId7 SecId2 Buy  2000 User7 CompanyE
-        OrdId8 SecId2 Sell 5000 User8 CompanyE        
+        - OrdId1 SecId1 Buy  1000 User1 CompanyA
+        - OrdId2 SecId2 Sell 3000 User2 CompanyB
+        - OrdId3 SecId1 Sell  500 User3 CompanyA
+        - OrdId4 SecId2 Buy   600 User4 CompanyC
+        - OrdId5 SecId2 Buy   100 User5 CompanyB
+        - OrdId6 SecId3 Buy  1000 User6 CompanyD
+        - OrdId7 SecId2 Buy  2000 User7 CompanyE
+        - OrdId8 SecId2 Sell 5000 User8 CompanyE        
     - Explanation
         - SecId1
             - SecId1 has 1 Buy order and 1 Sell order
@@ -126,7 +126,7 @@ would be viewed as extra credit.
         - OrdId11 SecId2 Sell 1100 User6 Company2
 
     - Total qty matching for security ids:
-    - SecId1 900
+        - SecId1 900
         - SecId2 600
         - SecId3 0
 
