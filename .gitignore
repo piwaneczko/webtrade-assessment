@@ -1,0 +1,6 @@
+install
+build
+*.aps
+*.user
+*.qm
+.vs
