@@ -88,6 +88,16 @@ TEST_F(OrderTests, MoreExamplesTest1) {
     EXPECT_EQ(orderCache2.getMatchingSizeForSecurity("SecId3"), 600u);
 }
 
+TEST_F(OrderTests, MoreExamplesCancelOrdersForTwoUsersTest) {
+    orderCache2.cancelOrdersForUser("User10");
+    orderCache2.cancelOrdersForUser("User13");
+
+    EXPECT_EQ(orderCache2.getAllOrders().size(), 9u);
+    EXPECT_EQ(orderCache2.getMatchingSizeForSecurity("SecId1"), 0);
+    EXPECT_EQ(orderCache2.getMatchingSizeForSecurity("SecId2"), 1000u);
+    EXPECT_EQ(orderCache2.getMatchingSizeForSecurity("SecId3"), 600u);
+}
+
 TEST_F(OrderTests, MoreExamplesTest2) {
     EXPECT_EQ(orderCache3.getAllOrders().size(), 11u);
     EXPECT_EQ(orderCache3.getMatchingSizeForSecurity("SecId1"), 900u);
