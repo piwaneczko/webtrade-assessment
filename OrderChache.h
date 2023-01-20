@@ -17,7 +17,6 @@ using std::find_if;
 using std::for_each;
 using std::list;
 using std::lock_guard;
-using std::map;
 using std::min;
 using std::mutex;
 using std::next;
