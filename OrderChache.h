@@ -141,6 +141,7 @@ class OrderCache : public OrderCacheInterface {
      * @param minQty Minimum quantity value of removed order
      */
     void cancelOrdersForSecIdWithMinimumQty(const string& securityId, unsigned int minQty) override {
+        lock_guard<mutex> ordersLock(ordersLocker_);
         orders_.erase(remove_if(orders_.begin(), orders_.end(),
                                 [&securityId, minQty](const Order& order) {
                                     return order.securityId() == securityId && order.qty() >= minQty;
