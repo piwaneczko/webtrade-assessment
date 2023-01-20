@@ -3,8 +3,25 @@
 // Additional include guard for some compilators, that doesn't support pragma once
 #pragma once
 
+#include <algorithm>
+#include <iostream>
+#include <list>
+#include <mutex>
 #include <string>
 #include <vector>
+
+using std::cout;
+using std::endl;
+using std::find;
+using std::find_if;
+using std::list;
+using std::lock_guard;
+using std::min;
+using std::mutex;
+using std::pair;
+using std::remove_if;
+using std::string;
+using std::vector;
 
 class Order {
    public:
@@ -47,7 +64,7 @@ class Order {
 // Provide an implementation for the OrderCacheInterface interface class.
 // Your implementation class should hold all relevant data structures you think
 // are needed.
-class OrderCacheInterface { /*<! I'm would use struct here ;) */
+class OrderCacheInterface {
    public:
     // implememnt the 6 methods below, do not alter signatures
 
@@ -70,34 +87,134 @@ class OrderCacheInterface { /*<! I'm would use struct here ;) */
     virtual std::vector<Order> getAllOrders() const = 0;
 };
 
-using std::string;
-using std::vector;
-
 class OrderCache : public OrderCacheInterface {
    private:
-    vector<Order> allOrders_;
+    mutable mutex ordersLocker_;
+    vector<Order> orders_;
 
    public:
-    // add order to the cache
-    void addOrder(Order order) override {}
-
-    // remove order with this unique order id from the cache
-    void cancelOrder(const string& orderId) override {}
-
-    // remove all orders in the cache for this user
-    void cancelOrdersForUser(const string& user) override {}
-
-    // remove all orders in the cache for this security with qty >= minQty
-    void cancelOrdersForSecIdWithMinimumQty(const string& securityId, unsigned int minQty) override {}
-
-    // return the total qty that can match for the security id
-    unsigned int getMatchingSizeForSecurity(const string& securityId) override {
-        return allOrders_.size();
+    /**
+     * @brief Add order to the cache
+     *
+     * @param order Order copy
+     */
+    void addOrder(Order order) override {
+        lock_guard<mutex> ordersLock(ordersLocker_);
+        orders_.emplace_back(order);
     }
 
-    // return all orders in cache in a vector
+    /**
+     * @brief Remove order with unique order id from the cache
+     *
+     * @param orderId Unique order Id to remove
+     */
+    void cancelOrder(const string& orderId) override {
+        lock_guard<mutex> ordersLock(ordersLocker_);
+        orders_.erase(remove_if(orders_.begin(), orders_.end(),
+                                [&orderId](const Order& order) { return order.orderId() == orderId; }),
+                      orders_.end());
+    }
+
+    /**
+     * @brief Remove all orders in the cache for user
+     *
+     * @param user User name for removing from cache
+     */
+    void cancelOrdersForUser(const string& user) override {
+        lock_guard<mutex> ordersLock(ordersLocker_);
+        orders_.erase(
+            remove_if(orders_.begin(), orders_.end(), [&user](const Order& order) { return order.user() == user; }),
+            orders_.end());
+    }
+
+    /**
+     * @brief Remove all orders in the cache for this security with qty >= minQty
+     *
+     * @param securityId Secuirity Id of removed order
+     * @param minQty Minimum quantity value of removed order
+     */
+    void cancelOrdersForSecIdWithMinimumQty(const string& securityId, unsigned int minQty) override {
+        orders_.erase(remove_if(orders_.begin(), orders_.end(),
+                                [&securityId, minQty](const Order& order) {
+                                    return order.securityId() == securityId && order.qty() >= minQty;
+                                }),
+                      orders_.end());
+    }
+
+    /**
+     * @brief Get the total qty that can match for the security id
+     *
+     * @param securityId Matching security id
+     * @note Order matching occurs for orders with the same security id, different side (buy or sell), and different
+     * company (company of person who requested the order)
+     * - Can only match orders with the same security id
+     * - Can only match a Buy order with a Sell order
+     * - Buy order can match against multiple Sell orders (and vice versa)
+     * - Any order quantity already allocated to a match cannot be reused as a match against a differnt order
+     * - Some orders may not match entirely or at all
+     * - Users in the same company cannot match against each other
+     * @return unsigned int Calculated quantity matching for secId
+     */
+    unsigned int getMatchingSizeForSecurity(const string& securityId) override {
+        using OrderIt = vector<Order>::iterator;
+        uint32_t bought = 0;
+        uint32_t sold = 0;
+        list<pair<OrderIt, OrderIt>> matches;
+        list<OrderIt> usedOrders;
+
+        auto orderNotUsed = [&usedOrders](const OrderIt& it) {
+            return find(usedOrders.begin(), usedOrders.end(), it) == usedOrders.end();
+        };
+
+        lock_guard<mutex> ordersLock(ordersLocker_);
+        // cout << " Searching for all trace matches between companies with same securityId: " << securityId << endl;
+        auto sellIt = orders_.begin();
+        while (sellIt != orders_.end()) {
+            sellIt = find_if(sellIt, orders_.end(), [&securityId](const auto& order) {
+                return order.side() == "Sell" && order.securityId() == securityId;
+            });
+            if (sellIt != orders_.end()) {
+                auto buyIt = orders_.begin();
+                while (buyIt != orders_.end()) {
+                    buyIt = find_if(buyIt, orders_.end(), [&sellIt](const Order& order) {
+                        return order.company() != sellIt->company() && order.side() != sellIt->side() &&
+                               order.securityId() == sellIt->securityId();
+                    });
+                    if (buyIt != orders_.end()) {
+                        matches.emplace_back(sellIt, buyIt);
+                        if (orderNotUsed(sellIt)) {
+                            bought += sellIt->qty();
+                            usedOrders.emplace_back(sellIt);
+                        }
+                        buyIt++;
+                    }
+                }
+                sellIt++;
+            }
+        };
+
+        for (const auto& match : matches) {
+            if (orderNotUsed(match.second)) {
+                /*cout << match.first->orderId() << " matches quantity " << match.second->qty() << " against "
+                     << match.second->orderId() << endl;*/
+                auto qty = min(match.second->qty(), bought);
+                sold += qty;
+                bought -= qty;
+                usedOrders.emplace_back(match.second);
+            }
+        }
+
+        return sold;
+    }
+
+    /**
+     * @brief Get the all orders in cache in a vector
+     *
+     * @return all orders in cache
+     */
     vector<Order> getAllOrders() const {
-        return allOrders_;
+        lock_guard<mutex> ordersLock(ordersLocker_);
+        return orders_;
     }
 };
 
