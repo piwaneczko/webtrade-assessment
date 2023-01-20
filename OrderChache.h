@@ -4,20 +4,21 @@
 #pragma once
 
 #include <algorithm>
+#include <deque>
 #include <iostream>
-#include <list>
 #include <mutex>
 #include <string>
 #include <vector>
 
 using std::cout;
+using std::deque;
 using std::endl;
 using std::find;
 using std::find_if;
-using std::list;
 using std::lock_guard;
 using std::min;
 using std::mutex;
+using std::next;
 using std::pair;
 using std::remove_if;
 using std::string;
@@ -159,8 +160,8 @@ class OrderCache : public OrderCacheInterface {
         using OrderIt = vector<Order>::iterator;
         uint32_t bought = 0;
         uint32_t sold = 0;
-        list<pair<OrderIt, OrderIt>> matches;
-        list<OrderIt> usedOrders;
+        deque<OrderIt> soldOrders;
+        deque<OrderIt> usedOrders;
 
         auto orderNotUsed = [&usedOrders](const OrderIt& it) {
             return find(usedOrders.begin(), usedOrders.end(), it) == usedOrders.end();
@@ -168,39 +169,45 @@ class OrderCache : public OrderCacheInterface {
 
         lock_guard<mutex> ordersLock(ordersLocker_);
         // cout << " Searching for all trace matches between companies with same securityId: " << securityId << endl;
-        auto sellIt = orders_.begin();
-        while (sellIt != orders_.end()) {
-            sellIt = find_if(sellIt, orders_.end(), [&securityId](const auto& order) {
-                return order.side() == "Sell" && order.securityId() == securityId;
-            });
-            if (sellIt != orders_.end()) {
-                auto buyIt = orders_.begin();
-                while (buyIt != orders_.end()) {
-                    buyIt = find_if(buyIt, orders_.end(), [&sellIt](const Order& order) {
-                        return order.company() != sellIt->company() && order.side() != sellIt->side() &&
-                               order.securityId() == sellIt->securityId();
+        auto match1 = orders_.begin();
+        while (match1 != orders_.end()) {
+            // Find first order matching securityId
+            match1 = find_if(match1, orders_.end(),
+                             [&securityId](const Order& order) { return order.securityId() == securityId; });
+            if (match1 != orders_.end()) {
+                auto match2 = next(match1);
+                while (match2 != orders_.end()) {
+                    // Search for multiple orders matching securityId for different side and company
+                    match2 = find_if(match2, orders_.end(), [&match1](const auto& order) {
+                        return order.company() != match1->company() && order.side() != match1->side() &&
+                               order.securityId() == match1->securityId();
                     });
-                    if (buyIt != orders_.end()) {
-                        matches.emplace_back(sellIt, buyIt);
-                        if (orderNotUsed(sellIt)) {
-                            bought += sellIt->qty();
-                            usedOrders.emplace_back(sellIt);
+                    if (match2 != orders_.end()) {
+                        // first sum bought orders
+                        auto sellOrder = match1->side() == "Sell" ? match1 : match2;
+                        auto buyOrder = match2->side() == "Buy" ? match2 : match1;
+                        soldOrders.emplace_back(buyOrder);  // store sold orders for future match size calculation
+                        if (orderNotUsed(sellOrder)) {
+                            // Quantity can be summed only once
+                            bought += sellOrder->qty();
+                            usedOrders.emplace_back(sellOrder);
                         }
-                        buyIt++;
+                        match2++;
                     }
                 }
-                sellIt++;
+                match1++;
             }
         };
 
-        for (const auto& match : matches) {
-            if (orderNotUsed(match.second)) {
+        for (const auto& order : soldOrders) {
+            if (orderNotUsed(order)) {  // Not use order more than once
                 /*cout << match.first->orderId() << " matches quantity " << match.second->qty() << " against "
                      << match.second->orderId() << endl;*/
-                auto qty = min(match.second->qty(), bought);
+                // Matched sold security ids from different company cannot be hgher from bought
+                auto qty = min(order->qty(), bought);
                 sold += qty;
                 bought -= qty;
-                usedOrders.emplace_back(match.second);
+                usedOrders.emplace_back(order);
             }
         }
 
