@@ -20,6 +20,7 @@ using std::min;
 using std::mutex;
 using std::next;
 using std::pair;
+using std::partition;
 using std::remove_if;
 using std::string;
 using std::vector;
@@ -88,10 +89,14 @@ class OrderCacheInterface {
     virtual std::vector<Order> getAllOrders() const = 0;
 };
 
+/**
+ * @brief Order cache implementation
+ *
+ */
 class OrderCache : public OrderCacheInterface {
    private:
-    mutable mutex ordersLocker_;
-    vector<Order> orders_;
+    mutable mutex ordersLocker_; /*!< Multithreaded sync object */
+    vector<Order> orders_;       /*!< Orders collection         */
 
    public:
     /**
@@ -163,39 +168,37 @@ class OrderCache : public OrderCacheInterface {
         deque<OrderIt> soldOrders;
         deque<OrderIt> usedOrders;
 
+        // Searching for all trace matches between companies with same securityId
+        lock_guard<mutex> ordersLock(ordersLocker_);
+
+        // move all (sort) orders with securityId to front to speed up the performance
+        auto nextSecurityPartition = partition(orders_.begin(), orders_.end(), [&securityId](const Order& order) {
+            return order.securityId() == securityId;
+        });
+        // inner lambda function for avoid code repetition
         auto orderNotUsed = [&usedOrders](const OrderIt& it) {
             return find(usedOrders.begin(), usedOrders.end(), it) == usedOrders.end();
         };
 
-        lock_guard<mutex> ordersLock(ordersLocker_);
-        // cout << " Searching for all trace matches between companies with same securityId: " << securityId << endl;
-        auto match1 = orders_.begin();
-        while (match1 != orders_.end()) {
-            // Find first order matching securityId
-            match1 = find_if(match1, orders_.end(),
-                             [&securityId](const Order& order) { return order.securityId() == securityId; });
-            if (match1 != orders_.end()) {
-                auto match2 = next(match1);
-                while (match2 != orders_.end()) {
-                    // Search for multiple orders matching securityId for different side and company
-                    match2 = find_if(match2, orders_.end(), [&match1](const auto& order) {
-                        return order.company() != match1->company() && order.side() != match1->side() &&
-                               order.securityId() == match1->securityId();
-                    });
-                    if (match2 != orders_.end()) {
-                        // first sum bought orders
-                        auto sellOrder = match1->side() == "Sell" ? match1 : match2;
-                        auto buyOrder = match2->side() == "Buy" ? match2 : match1;
-                        soldOrders.emplace_back(buyOrder);  // store sold orders for future match size calculation
-                        if (orderNotUsed(sellOrder)) {
-                            // Quantity can be summed only once
-                            bought += sellOrder->qty();
-                            usedOrders.emplace_back(sellOrder);
-                        }
-                        match2++;
+        for (auto it1 = orders_.begin(); it1 < nextSecurityPartition; it1++) {
+            for (auto it2 = next(it1); it2 < nextSecurityPartition; it2++) {
+                // Search for multiple orders matching securityId for different side and company
+                it2 = find_if(it2, nextSecurityPartition, [&it1](const auto& order) {
+                    return order.company() != it1->company() && order.side() != it1->side();
+                    // comparing securityId is unnecessary and redundant when searching in partition
+                    // range <it2:nextSecurityPartition)
+                });
+                // If match has been found sum bought orders and store sold orders for future match size calculation
+                if (it2 < nextSecurityPartition) {
+                    auto sellOrder = it1->side() == "Sell" ? it1 : it2;
+                    auto buyOrder = it2->side() == "Buy" ? it2 : it1;
+                    soldOrders.emplace_back(buyOrder);
+                    if (orderNotUsed(sellOrder)) {
+                        // Quantity can be summed only once
+                        bought += sellOrder->qty();
+                        usedOrders.emplace_back(sellOrder);
                     }
                 }
-                match1++;
             }
         };
 
@@ -203,7 +206,7 @@ class OrderCache : public OrderCacheInterface {
             if (orderNotUsed(order)) {  // Not use order more than once
                 /*cout << match.first->orderId() << " matches quantity " << match.second->qty() << " against "
                      << match.second->orderId() << endl;*/
-                // Matched sold security ids from different company cannot be hgher from bought
+                // Matched sold security ids from different company cannot be higher from bought
                 auto qty = min(order->qty(), bought);
                 sold += qty;
                 bought -= qty;

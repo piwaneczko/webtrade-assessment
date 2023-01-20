@@ -104,3 +104,11 @@ TEST_F(OrderTests, MoreExamplesTest2) {
     EXPECT_EQ(orderCache3.getMatchingSizeForSecurity("SecId2"), 600u);
     EXPECT_EQ(orderCache3.getMatchingSizeForSecurity("SecId3"), 0u);
 }
+
+TEST_F(OrderTests, PerformanceTest) {
+    for (size_t i = 0; i < 100000; i++) {
+        orderCache3.getMatchingSizeForSecurity("SecId1");
+        orderCache3.getMatchingSizeForSecurity("SecId2");
+        orderCache3.getMatchingSizeForSecurity("SecId3");
+    }
+}
